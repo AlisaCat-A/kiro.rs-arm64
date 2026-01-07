@@ -24,18 +24,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. 在容器内安装旧版系统所需的开发工具
+      # 1. 安装旧版系统开发工具，并升级 Node.js
       - name: Install System Dependencies
         run: |
+          # 启用 Node.js 20 模块（Oracle Linux 8 官方支持）
+          dnf module enable -y nodejs:20
           dnf groupinstall -y "Development Tools"
-          dnf install -y openssl-devel perl-core nodejs npm
+          dnf install -y openssl-devel perl-core nodejs
+          
+          # 验证版本
+          node -v  # 应该显示 v20.x.x
 
-      # 2. 构建前端 (容器内)
+      # 2. 构建前端 (现在的 Node 环境可以跑 tsc 和 vite 了)
       - name: Build admin-ui
         working-directory: admin-ui
         run: |
-          npm install
-          npm run build
+          # 如果项目有用 pnpm，这里安装一下；如果没有，就用 npm
+          npm install -g pnpm || true
+          pnpm install || npm install
+          pnpm run build || npm run build
 
       # 3. 安装 Rust (针对容器环境)
       - name: Install Rust
