@@ -1,4 +1,4 @@
-name: Build Artifacts
+name: Build for Oracle Linux ARM64
 
 on:
   push:
@@ -11,37 +11,16 @@ on:
         required: true
         default: '2026.1.1'
 
-permissions:
-  contents: read
-
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            name: macOS-arm64
-          - platform: macos-latest
-            target: x86_64-apple-darwin
-            name: macOS-x64
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            name: Windows-x64
-          - platform: ubuntu-latest
-            target: x86_64-unknown-linux-musl  # 修改为 musl
-            name: Linux-x64-static
-          - platform: ubuntu-24.04-arm         # 使用 GitHub 提供的 ARM 运行器
-            target: aarch64-unknown-linux-musl  # 修改为 musl (适配 Oracle Linux 8)
-            name: Linux-arm64-static
-
-    runs-on: ${{ matrix.platform }}
-
+  build-arm64:
+    # 使用 GitHub 提供的原生 ARM64 运行器，确保环境最接近你的服务器
+    runs-on: ubuntu-24.04-arm
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # --- 前端构建 ---
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -52,43 +31,30 @@ jobs:
         with:
           version: 9
 
-      - name: Install admin-ui dependencies
-        working-directory: admin-ui
-        run: pnpm install
-
       - name: Build admin-ui
         working-directory: admin-ui
-        run: pnpm build
+        run: |
+          pnpm install
+          pnpm build
 
+      # --- Rust 构建 ---
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
-      # 为 Linux 编译安装 musl 工具链
-      - name: Install musl tools
-        if: contains(matrix.target, 'musl')
+      - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools
-
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "rust-cache-${{ matrix.target }}"
+          sudo apt-get install -y pkg-config libssl-dev perl make
 
       - name: Build app
-        # 增加环境变量强制 OpenSSL 静态编译
+        # OPENSSL_STATIC=1 配合 Cargo.toml 的 vendored 确保不依赖系统的 libssl.so.3
         env:
           OPENSSL_STATIC: 1
-          OPENSSL_DIR: /usr/local
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release
 
-      - name: Upload build artifacts
+      # --- 上传产物 ---
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: kiro-rs-${{ github.event.inputs.version || github.ref_name }}-${{ matrix.name }}
-          if-no-files-found: error
-          path: |
-            target/${{ matrix.target }}/release/kiro-rs
-            target/${{ matrix.target }}/release/kiro-rs.exe
+          name: kiro-rs-oracle-linux-arm64
+          path: target/release/kiro-rs
