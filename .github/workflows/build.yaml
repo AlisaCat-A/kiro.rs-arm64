@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version label for artifacts (e.g., 2025.12.1)'
+        description: 'Version label'
         required: true
         default: '2026.1.1'
 
@@ -29,12 +29,12 @@ jobs:
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             name: Windows-x64
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            name: Linux-x64
-          - platform: ubuntu-22.04-arm
-            target: aarch64-unknown-linux-gnu
-            name: Linux-arm64
+          - platform: ubuntu-latest
+            target: x86_64-unknown-linux-musl  # 修改为 musl
+            name: Linux-x64-static
+          - platform: ubuntu-24.04-arm         # 使用 GitHub 提供的 ARM 运行器
+            target: aarch64-unknown-linux-musl  # 修改为 musl (适配 Oracle Linux 8)
+            name: Linux-arm64-static
 
     runs-on: ${{ matrix.platform }}
 
@@ -65,13 +65,23 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # 为 Linux 编译安装 musl 工具链
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "rust-cache-${{ matrix.target }}"
-          cache-on-failure: true
 
       - name: Build app
+        # 增加环境变量强制 OpenSSL 静态编译
+        env:
+          OPENSSL_STATIC: 1
+          OPENSSL_DIR: /usr/local
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Upload build artifacts
@@ -79,7 +89,6 @@ jobs:
         with:
           name: kiro-rs-${{ github.event.inputs.version || github.ref_name }}-${{ matrix.name }}
           if-no-files-found: error
-          compression-level: 6
           path: |
             target/${{ matrix.target }}/release/kiro-rs
             target/${{ matrix.target }}/release/kiro-rs.exe
