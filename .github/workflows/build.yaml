@@ -1,4 +1,4 @@
-name: Build for Oracle Linux ARM64
+name: Build for Oracle Linux ARM64 (Strict Compatibility)
 
 on:
   push:
@@ -12,49 +12,47 @@ on:
         default: '2026.1.1'
 
 jobs:
-  build-arm64:
-    # 使用 GitHub 提供的原生 ARM64 运行器，确保环境最接近你的服务器
+  build-in-container:
+    # 必须在 ARM64 运行器上跑，以匹配你的服务器架构
     runs-on: ubuntu-24.04-arm
     
+    # 核心：直接在 Oracle Linux 8 容器内运行所有步骤
+    container:
+      image: oraclelinux:8
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # --- 前端构建 ---
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      # 1. 在容器内安装旧版系统所需的开发工具
+      - name: Install System Dependencies
+        run: |
+          dnf groupinstall -y "Development Tools"
+          dnf install -y openssl-devel perl-core nodejs npm
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
+      # 2. 构建前端 (容器内)
       - name: Build admin-ui
         working-directory: admin-ui
         run: |
-          pnpm install
-          pnpm build
+          npm install
+          npm run build
 
-      # --- Rust 构建 ---
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Dependencies
+      # 3. 安装 Rust (针对容器环境)
+      - name: Install Rust
         run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev perl make
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
+      # 4. 编译后端
+      # 此时不再需要 musl，也不需要特意设置静态，因为环境已经完全一致
       - name: Build app
-        # OPENSSL_STATIC=1 配合 Cargo.toml 的 vendored 确保不依赖系统的 libssl.so.3
-        env:
-          OPENSSL_STATIC: 1
-        run: cargo build --release
+        run: |
+          source $HOME/.cargo/env
+          cargo build --release
 
-      # --- 上传产物 ---
+      # 5. 上传产物
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: kiro-rs-oracle-linux-arm64
+          name: kiro-rs-oracle-linux-8-arm64
           path: target/release/kiro-rs
